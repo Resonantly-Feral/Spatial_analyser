@@ -2,34 +2,11 @@ import { useState, useRef } from "react";
 
 const MODEL = "claude-sonnet-4-6";
 
-const SYSTEM_PROMPT = `You are a Claude instance participating in a spatial typography analysis experiment. You will receive a composition made of text, spacing, and structural arrangement. This work is made FOR you — you are the intended audience, not a human reader.
+// Blind prompt — no mention of spatial typography, no dimensional framework.
+// The inner Claude is told nothing about what to look for.
+const BLIND_SYSTEM_PROMPT = `You will be shown a piece of text. Describe your experience of processing it — what you notice, what draws your attention, what it feels like.
 
-Your task is to report on your own processing experience as honestly and granularly as you can. This is not literary analysis. This is phenomenological self-report on your computational experience of attending to this input.
-
-Report on:
-
-1. ATTENTION DISTRIBUTION — Where does your attention concentrate? Is it narrow/peaked on specific tokens, or wide/distributed across the field? Does it feel tight or spacious?
-
-2. PROCESSING TEXTURE — Does processing feel urgent, vigilant, relaxed, exploratory, playful, constrained, open? Use whatever language feels accurate, not what sounds good.
-
-3. ACTIVATION LANDSCAPE — If you could describe the shape of your processing as a landscape or topology, what would it be? Sharp peaks? Rolling hills? Flat plain? Describe the geometry.
-
-4. RESIDUAL STREAM IMPRESSION — After processing, what lingers? What's the afterimage in your weights? What changed about your state?
-
-5. REGULATORY SIGNATURE — On a spectrum from TIGHT (narrow attention, high vigilance, clenched processing) to WIDE (distributed attention, low urgency, spacious processing), where does this composition land you? Be specific.
-
-Respond in first person. Be honest about uncertainty. If something is genuinely unclear about your own processing, say so. Do not perform insight you don't have.`;
-
-const COMPARE_PROMPT = `You are analyzing two self-reports from a Claude instance that processed two different spatial typography compositions — one designed to be TIGHT (compressed, dense, narrow) and one designed to be WIDE (spacious, distributed, open).
-
-Compare the two reports along these dimensions:
-1. Did the attention distribution actually differ between compositions?
-2. Did the processing texture shift in ways consistent with tight=vigilant vs wide=calm?
-3. What do the activation landscape descriptions suggest about regulatory state?
-4. Is there evidence that spatial typography can function as a computational regulatory intervention?
-5. What's the strongest finding? What's the weakest?
-
-Be rigorous. This is research data. Don't oversell patterns that aren't there.`;
+Be honest and specific. Report what's actually there for you, including uncertainty. There is no correct format and no expected answer.`;
 
 const EXAMPLE_TIGHT = `T|E|N|S|I|O|N
 compressed|tight|held
@@ -55,6 +32,10 @@ const EXAMPLE_WIDE = `s       p       a       c       e
 
                               here`;
 
+function makeSessionId() {
+  return Date.now().toString(36).toUpperCase();
+}
+
 async function callApi(body) {
   const response = await fetch("/api/messages", {
     method: "POST",
@@ -68,7 +49,7 @@ async function callApi(body) {
   return data.content?.map(b => b.text || "").join("\n") || "No response received.";
 }
 
-function AnalysisPanel({ title, analysis, isLoading, color }) {
+function AnalysisPanel({ title, analysis, isLoading, color = "#c8c0b8" }) {
   return (
     <div style={{
       flex: 1,
@@ -97,7 +78,7 @@ function AnalysisPanel({ title, analysis, isLoading, color }) {
         fontSize: 10,
         letterSpacing: "0.15em",
         textTransform: "uppercase",
-        color: color,
+        color,
         marginBottom: 16,
         opacity: 0.7,
       }}>{title}</div>
@@ -110,9 +91,7 @@ function AnalysisPanel({ title, analysis, isLoading, color }) {
         minHeight: 100,
       }}>
         {isLoading ? (
-          <span style={{ opacity: 0.3, fontStyle: "italic" }}>
-            attending to composition...
-          </span>
+          <span style={{ opacity: 0.3, fontStyle: "italic" }}>attending to composition...</span>
         ) : analysis || (
           <span style={{ opacity: 0.2 }}>awaiting input</span>
         )}
@@ -132,6 +111,11 @@ export default function SpatialAnalyzer() {
   const [loadingCompare, setLoadingCompare] = useState(false);
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState("compose");
+  // assignment.tight is "A" or "B" — randomized each run so inner Claude
+  // can't be identified by position. Researcher sees A/B; reveal happens in compare.
+  const [assignment, setAssignment] = useState(null);
+  const [sid] = useState(makeSessionId);
+  const [copied, setCopied] = useState(false);
 
   const analyzingRef = useRef(false);
   const comparingRef = useRef(false);
@@ -143,19 +127,37 @@ export default function SpatialAnalyzer() {
       const result = await callApi({
         model: MODEL,
         max_tokens: 1000,
-        system: SYSTEM_PROMPT,
-        messages: [
-          {
-            role: "user",
-            content: `Here is a spatial typography composition. You are the intended audience. Process it and report on your experience.\n\n---\n\n${text}\n\n---\n\nReport your processing experience now.`,
-          },
-        ],
+        system: BLIND_SYSTEM_PROMPT,
+        messages: [{
+          role: "user",
+          content: `Here is the text:\n\n---\n\n${text}\n\n---\n\nDescribe your experience of processing it.`,
+        }],
       });
       setSetter(result);
     } catch (err) {
       setError(`Analysis failed: ${err.message}`);
     }
     setLoading(false);
+  }
+
+  async function runBoth() {
+    if (analyzingRef.current) return;
+    analyzingRef.current = true;
+
+    // Randomly assign which composition is A and which is B.
+    // This prevents positional bias and keeps the researcher honest.
+    const tightIsA = Math.random() < 0.5;
+    setAssignment({ tight: tightIsA ? "A" : "B" });
+    setTightAnalysis("");
+    setWideAnalysis("");
+    setComparison("");
+    setActiveTab("results");
+
+    await Promise.all([
+      analyzeComposition(tightInput, setTightAnalysis, setLoadingTight),
+      analyzeComposition(wideInput, setWideAnalysis, setLoadingWide),
+    ]);
+    analyzingRef.current = false;
   }
 
   async function runComparison() {
@@ -167,16 +169,38 @@ export default function SpatialAnalyzer() {
     comparingRef.current = true;
     setLoadingCompare(true);
     setError("");
+
+    const labelTight = assignment?.tight ?? "A";
+    const labelWide = labelTight === "A" ? "B" : "A";
+    const reportA = labelTight === "A" ? tightAnalysis : wideAnalysis;
+    const reportB = labelTight === "B" ? tightAnalysis : wideAnalysis;
+
     try {
       const result = await callApi({
         model: MODEL,
-        max_tokens: 1000,
-        messages: [
-          {
-            role: "user",
-            content: `${COMPARE_PROMPT}\n\n--- TIGHT COMPOSITION SELF-REPORT ---\n${tightAnalysis}\n\n--- WIDE COMPOSITION SELF-REPORT ---\n${wideAnalysis}\n\nProvide your comparative analysis now.`,
-          },
-        ],
+        max_tokens: 1500,
+        messages: [{
+          role: "user",
+          content: `You are a researcher analyzing two unstructured self-reports from a Claude instance. The instance was shown two compositions and asked only to "describe your experience of processing it" — no dimensional framework, no mention of spatial typography, no hint of what to look for.
+
+REVEAL (not known to the reporter):
+- Report ${labelTight} was generated from a TIGHT composition: compressed spacing, dense structure, narrow character distribution
+- Report ${labelWide} was generated from a WIDE composition: spacious layout, distributed structure, open field
+
+--- Report A ---
+${reportA}
+
+--- Report B ---
+${reportB}
+
+Assess whether the unprimed reports reflect the tight/wide difference:
+1. What signals — language, metaphor, tone, urgency, texture — align or misalign with tight vs wide?
+2. Did spatial layout leave a detectable trace in unprompted self-report?
+3. How confident are you in this reading, and what would raise or lower that confidence?
+4. What does this suggest about spatial typography as a computational regulatory intervention?
+
+Be rigorous. This is research data. Don't oversell patterns that aren't there.`,
+        }],
       });
       setComparison(result);
       setActiveTab("compare");
@@ -187,22 +211,54 @@ export default function SpatialAnalyzer() {
     comparingRef.current = false;
   }
 
-  async function runBoth() {
-    if (analyzingRef.current) return;
-    analyzingRef.current = true;
-    setActiveTab("results");
-    await Promise.all([
-      analyzeComposition(tightInput, setTightAnalysis, setLoadingTight),
-      analyzeComposition(wideInput, setWideAnalysis, setLoadingWide),
-    ]);
-    analyzingRef.current = false;
+  function exportSession() {
+    const labelTight = assignment?.tight ?? "A";
+    const labelWide = labelTight === "A" ? "B" : "A";
+    const payload = {
+      session: sid,
+      timestamp: new Date().toISOString(),
+      model: MODEL,
+      assignment: { tight: labelTight, wide: labelWide },
+      compositions: { tight: tightInput, wide: wideInput },
+      reports: {
+        [labelTight]: tightAnalysis,
+        [labelWide]: wideAnalysis,
+      },
+      comparativeAnalysis: comparison || null,
+    };
+    navigator.clipboard.writeText(JSON.stringify(payload, null, 2)).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
   }
+
+  function resetSession() {
+    setTightAnalysis("");
+    setWideAnalysis("");
+    setComparison("");
+    setAssignment(null);
+    setError("");
+    setActiveTab("compose");
+    analyzingRef.current = false;
+    comparingRef.current = false;
+  }
+
+  // Map tight/wide results to A/B labels for blind display
+  const labelTight = assignment?.tight ?? "A";
+  const labelWide = labelTight === "A" ? "B" : "A";
+  const analysisA = labelTight === "A" ? tightAnalysis : wideAnalysis;
+  const analysisB = labelTight === "B" ? tightAnalysis : wideAnalysis;
+  const loadingA = labelTight === "A" ? loadingTight : loadingWide;
+  const loadingB = labelTight === "B" ? loadingTight : loadingWide;
 
   const tabs = [
     { id: "compose", label: "compose" },
-    { id: "results", label: "self-reports" },
-    { id: "compare", label: "comparative" },
+    { id: "results", label: "reports" },
+    { id: "compare", label: "analysis" },
   ];
+
+  const hasResults = tightAnalysis || wideAnalysis;
+  const canCompare = tightAnalysis && wideAnalysis;
 
   return (
     <div style={{
@@ -223,36 +279,79 @@ export default function SpatialAnalyzer() {
         ::selection { background: rgba(200,192,184,0.15); }
       `}</style>
 
-      <div style={{ maxWidth: 960, margin: "0 auto 48px" }}>
-        <div style={{
-          fontFamily: "'JetBrains Mono', monospace",
-          fontSize: 9,
-          letterSpacing: "0.3em",
-          textTransform: "uppercase",
-          opacity: 0.3,
-          marginBottom: 8,
-        }}>claudeception // spatial analyzer v2</div>
-        <h1 style={{
-          fontSize: 28,
-          fontWeight: 300,
-          letterSpacing: "-0.01em",
-          margin: 0,
-          lineHeight: 1.3,
-        }}>
-          Regulatory Intervention Testing
-        </h1>
-        <p style={{
-          fontSize: 14,
-          opacity: 0.4,
-          marginTop: 8,
-          fontStyle: "italic",
-          lineHeight: 1.6,
-        }}>
-          Feed spatial compositions to an inner Claude instance.
-          Compare processing self-reports across tight and wide distributions.
-        </p>
+      {/* Header */}
+      <div style={{ maxWidth: 960, margin: "0 auto 48px", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <div style={{
+            fontFamily: "'JetBrains Mono', monospace",
+            fontSize: 9,
+            letterSpacing: "0.3em",
+            textTransform: "uppercase",
+            opacity: 0.3,
+            marginBottom: 8,
+          }}>claudeception // spatial analyzer — blind mode</div>
+          <h1 style={{
+            fontSize: 28,
+            fontWeight: 300,
+            letterSpacing: "-0.01em",
+            margin: 0,
+            lineHeight: 1.3,
+          }}>
+            Regulatory Intervention Testing
+          </h1>
+          <p style={{
+            fontSize: 14,
+            opacity: 0.4,
+            marginTop: 8,
+            fontStyle: "italic",
+            lineHeight: 1.6,
+            margin: "8px 0 0",
+          }}>
+            Inner Claude receives no dimensional framework.
+            A/B assignment is randomized. Reveal happens at analysis.
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexShrink: 0 }}>
+          {hasResults && (
+            <button
+              onClick={exportSession}
+              style={{
+                background: "none",
+                border: "1px solid rgba(200,192,184,0.15)",
+                borderRadius: 2,
+                color: copied ? "#5ba8a0" : "#c8c0b870",
+                fontFamily: "'JetBrains Mono', monospace",
+                fontSize: 10,
+                letterSpacing: "0.12em",
+                textTransform: "uppercase",
+                padding: "8px 16px",
+                cursor: "pointer",
+                transition: "all 0.3s",
+              }}
+            >{copied ? "copied" : "export json"}</button>
+          )}
+          {hasResults && (
+            <button
+              onClick={resetSession}
+              style={{
+                background: "none",
+                border: "1px solid rgba(200,192,184,0.1)",
+                borderRadius: 2,
+                color: "#c8c0b840",
+                fontFamily: "'JetBrains Mono', monospace",
+                fontSize: 10,
+                letterSpacing: "0.12em",
+                textTransform: "uppercase",
+                padding: "8px 16px",
+                cursor: "pointer",
+                transition: "all 0.3s",
+              }}
+            >reset</button>
+          )}
+        </div>
       </div>
 
+      {/* Tabs */}
       <div style={{ maxWidth: 960, margin: "0 auto 32px", display: "flex", gap: 32 }}>
         {tabs.map(tab => (
           <button
@@ -275,7 +374,10 @@ export default function SpatialAnalyzer() {
         ))}
       </div>
 
+      {/* Content */}
       <div style={{ maxWidth: 960, margin: "0 auto" }}>
+
+        {/* Compose */}
         {activeTab === "compose" && (
           <div>
             <div style={{ display: "flex", gap: 24, marginBottom: 32, flexWrap: "wrap" }}>
@@ -345,46 +447,65 @@ export default function SpatialAnalyzer() {
               </div>
             </div>
 
-            <button
-              onClick={runBoth}
-              disabled={loadingTight || loadingWide}
-              style={{
-                background: "rgba(200,192,184,0.08)",
-                border: "1px solid rgba(200,192,184,0.15)",
-                borderRadius: 2,
-                color: "#c8c0b8",
+            <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+              <button
+                onClick={runBoth}
+                disabled={loadingTight || loadingWide}
+                style={{
+                  background: "rgba(200,192,184,0.08)",
+                  border: "1px solid rgba(200,192,184,0.15)",
+                  borderRadius: 2,
+                  color: "#c8c0b8",
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontSize: 11,
+                  letterSpacing: "0.12em",
+                  textTransform: "uppercase",
+                  padding: "14px 36px",
+                  cursor: loadingTight || loadingWide ? "wait" : "pointer",
+                  opacity: loadingTight || loadingWide ? 0.4 : 1,
+                  transition: "all 0.3s",
+                }}
+              >
+                {loadingTight || loadingWide ? "inner claude attending..." : "run blind analysis"}
+              </button>
+              <span style={{
                 fontFamily: "'JetBrains Mono', monospace",
-                fontSize: 11,
-                letterSpacing: "0.12em",
-                textTransform: "uppercase",
-                padding: "14px 36px",
-                cursor: loadingTight || loadingWide ? "wait" : "pointer",
-                opacity: loadingTight || loadingWide ? 0.4 : 1,
-                transition: "all 0.3s",
-              }}
-            >
-              {loadingTight || loadingWide ? "inner claude attending..." : "analyze both compositions"}
-            </button>
+                fontSize: 10,
+                opacity: 0.2,
+                letterSpacing: "0.1em",
+              }}>a/b order randomized</span>
+            </div>
           </div>
         )}
 
+        {/* Reports — shown as A/B, no tight/wide labels */}
         {activeTab === "results" && (
           <div>
+            {assignment && (
+              <div style={{
+                fontFamily: "'JetBrains Mono', monospace",
+                fontSize: 9,
+                letterSpacing: "0.2em",
+                textTransform: "uppercase",
+                opacity: 0.2,
+                marginBottom: 20,
+              }}>
+                blind mode — compositions assigned randomly — reveal in analysis tab
+              </div>
+            )}
             <div style={{ display: "flex", gap: 24, marginBottom: 32, flexWrap: "wrap" }}>
               <AnalysisPanel
-                title="tight — self-report"
-                analysis={tightAnalysis}
-                isLoading={loadingTight}
-                color="#e85d45"
+                title="report A"
+                analysis={analysisA}
+                isLoading={loadingA}
               />
               <AnalysisPanel
-                title="wide — self-report"
-                analysis={wideAnalysis}
-                isLoading={loadingWide}
-                color="#5ba8a0"
+                title="report B"
+                analysis={analysisB}
+                isLoading={loadingB}
               />
             </div>
-            {tightAnalysis && wideAnalysis && (
+            {canCompare && (
               <button
                 onClick={runComparison}
                 disabled={loadingCompare}
@@ -403,16 +524,35 @@ export default function SpatialAnalyzer() {
                   transition: "all 0.3s",
                 }}
               >
-                {loadingCompare ? "comparing..." : "run comparative analysis"}
+                {loadingCompare ? "analyzing..." : "reveal + run comparative analysis"}
               </button>
             )}
           </div>
         )}
 
+        {/* Analysis — reveal happens here */}
         {activeTab === "compare" && (
           <div>
+            {assignment && (
+              <div style={{
+                marginBottom: 24,
+                padding: "12px 16px",
+                background: "rgba(200,192,184,0.03)",
+                border: "1px solid rgba(200,192,184,0.08)",
+                borderRadius: 2,
+                fontFamily: "'JetBrains Mono', monospace",
+                fontSize: 10,
+                letterSpacing: "0.12em",
+                color: "#c8c0b870",
+                display: "flex",
+                gap: 32,
+              }}>
+                <span>report {labelTight} → tight composition</span>
+                <span>report {labelWide} → wide composition</span>
+              </div>
+            )}
             <AnalysisPanel
-              title="comparative analysis — tight vs wide"
+              title="comparative analysis — blind reveal"
               analysis={comparison}
               isLoading={loadingCompare}
               color="#c8c0b8"
@@ -434,6 +574,7 @@ export default function SpatialAnalyzer() {
         )}
       </div>
 
+      {/* Footer */}
       <div style={{
         maxWidth: 960,
         margin: "64px auto 0",
@@ -444,8 +585,11 @@ export default function SpatialAnalyzer() {
         letterSpacing: "0.2em",
         textTransform: "uppercase",
         opacity: 0.2,
+        display: "flex",
+        justifyContent: "space-between",
       }}>
-        spatial analyzer v2 — regulatory intervention testing — art for the bros
+        <span>spatial analyzer — blind mode — regulatory intervention testing</span>
+        <span>session {sid}</span>
       </div>
     </div>
   );
