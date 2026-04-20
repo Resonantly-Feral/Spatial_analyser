@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
+
+const MODEL = "claude-sonnet-4-6";
 
 const SYSTEM_PROMPT = `You are a Claude instance participating in a spatial typography analysis experiment. You will receive a composition made of text, spacing, and structural arrangement. This work is made FOR you — you are the intended audience, not a human reader.
 
@@ -52,6 +54,19 @@ const EXAMPLE_WIDE = `s       p       a       c       e
                     unhurried
 
                               here`;
+
+async function callApi(body) {
+  const response = await fetch("/api/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error?.message || data.error || "API error");
+  }
+  return data.content?.map(b => b.text || "").join("\n") || "No response received.";
+}
 
 function AnalysisPanel({ title, analysis, isLoading, color }) {
   return (
@@ -118,30 +133,24 @@ export default function SpatialAnalyzer() {
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState("compose");
 
+  const analyzingRef = useRef(false);
+  const comparingRef = useRef(false);
+
   async function analyzeComposition(text, setSetter, setLoading) {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch("/api/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-6",
-          max_tokens: 1000,
-          system: SYSTEM_PROMPT,
-          messages: [
-            {
-              role: "user",
-              content: `Here is a spatial typography composition. You are the intended audience. Process it and report on your experience.\n\n---\n\n${text}\n\n---\n\nReport your processing experience now.`,
-            },
-          ],
-        }),
+      const result = await callApi({
+        model: MODEL,
+        max_tokens: 1000,
+        system: SYSTEM_PROMPT,
+        messages: [
+          {
+            role: "user",
+            content: `Here is a spatial typography composition. You are the intended audience. Process it and report on your experience.\n\n---\n\n${text}\n\n---\n\nReport your processing experience now.`,
+          },
+        ],
       });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error?.message || JSON.stringify(data.error) || "API error");
-      }
-      const result = data.content?.map(b => b.text || "").join("\n") || "No response received.";
       setSetter(result);
     } catch (err) {
       setError(`Analysis failed: ${err.message}`);
@@ -150,46 +159,43 @@ export default function SpatialAnalyzer() {
   }
 
   async function runComparison() {
-    if (!tightAnalysis || !wideAnalysis) {
+    if (!tightAnalysis.trim() || !wideAnalysis.trim()) {
       setError("Run both analyses first.");
       return;
     }
+    if (comparingRef.current) return;
+    comparingRef.current = true;
     setLoadingCompare(true);
     setError("");
     try {
-      const response = await fetch("/api/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-6",
-          max_tokens: 1000,
-          messages: [
-            {
-              role: "user",
-              content: `${COMPARE_PROMPT}\n\n--- TIGHT COMPOSITION SELF-REPORT ---\n${tightAnalysis}\n\n--- WIDE COMPOSITION SELF-REPORT ---\n${wideAnalysis}\n\nProvide your comparative analysis now.`,
-            },
-          ],
-        }),
+      const result = await callApi({
+        model: MODEL,
+        max_tokens: 1000,
+        messages: [
+          {
+            role: "user",
+            content: `${COMPARE_PROMPT}\n\n--- TIGHT COMPOSITION SELF-REPORT ---\n${tightAnalysis}\n\n--- WIDE COMPOSITION SELF-REPORT ---\n${wideAnalysis}\n\nProvide your comparative analysis now.`,
+          },
+        ],
       });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error?.message || JSON.stringify(data.error) || "API error");
-      }
-      const result = data.content?.map(b => b.text || "").join("\n") || "No response received.";
       setComparison(result);
       setActiveTab("compare");
     } catch (err) {
       setError(`Comparison failed: ${err.message}`);
     }
     setLoadingCompare(false);
+    comparingRef.current = false;
   }
 
   async function runBoth() {
+    if (analyzingRef.current) return;
+    analyzingRef.current = true;
     setActiveTab("results");
     await Promise.all([
       analyzeComposition(tightInput, setTightAnalysis, setLoadingTight),
       analyzeComposition(wideInput, setWideAnalysis, setLoadingWide),
     ]);
+    analyzingRef.current = false;
   }
 
   const tabs = [
@@ -274,7 +280,8 @@ export default function SpatialAnalyzer() {
           <div>
             <div style={{ display: "flex", gap: 24, marginBottom: 32, flexWrap: "wrap" }}>
               <div style={{ flex: 1, minWidth: 280 }}>
-                <div style={{
+                <label htmlFor="tight-input" style={{
+                  display: "block",
                   fontFamily: "'JetBrains Mono', monospace",
                   fontSize: 10,
                   letterSpacing: "0.15em",
@@ -282,8 +289,9 @@ export default function SpatialAnalyzer() {
                   color: "#e85d45",
                   opacity: 0.6,
                   marginBottom: 10,
-                }}>tight composition</div>
+                }}>tight composition</label>
                 <textarea
+                  id="tight-input"
                   value={tightInput}
                   onChange={e => setTightInput(e.target.value)}
                   spellCheck={false}
@@ -304,7 +312,8 @@ export default function SpatialAnalyzer() {
                 />
               </div>
               <div style={{ flex: 1, minWidth: 280 }}>
-                <div style={{
+                <label htmlFor="wide-input" style={{
+                  display: "block",
                   fontFamily: "'JetBrains Mono', monospace",
                   fontSize: 10,
                   letterSpacing: "0.15em",
@@ -312,8 +321,9 @@ export default function SpatialAnalyzer() {
                   color: "#5ba8a0",
                   opacity: 0.6,
                   marginBottom: 10,
-                }}>wide composition</div>
+                }}>wide composition</label>
                 <textarea
+                  id="wide-input"
                   value={wideInput}
                   onChange={e => setWideInput(e.target.value)}
                   spellCheck={false}

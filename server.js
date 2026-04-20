@@ -1,19 +1,21 @@
 import express from "express";
-import { createServer } from "http";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
-import { readFileSync, existsSync } from "fs";
+import { existsSync } from "fs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.use(express.json());
 
-const API_KEY = process.env.ANTHROPIC_API_KEY || "";
+const API_KEY = process.env.ANTHROPIC_API_KEY;
+if (!API_KEY) {
+  console.error("ANTHROPIC_API_KEY is not set — exiting.");
+  process.exit(1);
+}
 
 app.post("/api/messages", async (req, res) => {
-  if (!API_KEY) {
-    return res.status(500).json({ error: "ANTHROPIC_API_KEY not set" });
-  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30_000);
   try {
     const upstream = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -23,20 +25,42 @@ app.post("/api/messages", async (req, res) => {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify(req.body),
+      signal: controller.signal,
     });
     const data = await upstream.json();
     res.status(upstream.status).json(data);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    if (err.name === "AbortError") {
+      res.status(504).json({ error: "Request to upstream API timed out." });
+    } else {
+      console.error("Upstream fetch error:", err);
+      res.status(500).json({ error: "Internal server error." });
+    }
+  } finally {
+    clearTimeout(timeout);
   }
 });
 
-// Serve built frontend in production
 const distPath = join(__dirname, "dist");
 if (existsSync(distPath)) {
   app.use(express.static(distPath));
-  app.get("*", (_, res) => res.sendFile(join(distPath, "index.html")));
+  app.get("*", (_, res) =>
+    res.sendFile(join(distPath, "index.html"), err => {
+      if (err) res.status(500).send("Could not serve app.");
+    })
+  );
 }
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`server listening on :${PORT}`));
+const server = app.listen(PORT, () => console.log(`server listening on :${PORT}`));
+
+server.on("error", err => {
+  console.error("Server error:", err);
+  process.exit(1);
+});
+
+for (const sig of ["SIGTERM", "SIGINT"]) {
+  process.on(sig, () => {
+    server.close(() => process.exit(0));
+  });
+}
