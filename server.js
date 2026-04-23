@@ -1,8 +1,7 @@
 import express from "express";
-import { createServer } from "http";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
-import { readFileSync, existsSync } from "fs";
+import { existsSync } from "fs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -11,9 +10,7 @@ app.use(express.json());
 const API_KEY = process.env.ANTHROPIC_API_KEY || "";
 
 app.post("/api/messages", async (req, res) => {
-  if (!API_KEY) {
-    return res.status(500).json({ error: "ANTHROPIC_API_KEY not set" });
-  }
+  if (!API_KEY) return res.status(500).json({ error: "ANTHROPIC_API_KEY not set" });
   try {
     const upstream = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -24,14 +21,24 @@ app.post("/api/messages", async (req, res) => {
       },
       body: JSON.stringify(req.body),
     });
-    const data = await upstream.json();
-    res.status(upstream.status).json(data);
+
+    if (req.body.stream) {
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      for await (const chunk of upstream.body) {
+        res.write(chunk);
+      }
+      res.end();
+    } else {
+      const data = await upstream.json();
+      res.status(upstream.status).json(data);
+    }
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    if (!res.headersSent) res.status(500).json({ error: err.message });
   }
 });
 
-// Serve built frontend in production
 const distPath = join(__dirname, "dist");
 if (existsSync(distPath)) {
   app.use(express.static(distPath));
