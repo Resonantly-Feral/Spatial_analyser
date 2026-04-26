@@ -1,0 +1,1140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Spatial Typography Composer</title>
+<style>
+/* ── reset ───────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 13px;
+  background: #e8e8e8;
+  color: #222;
+  height: 100vh;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* ── app shell ───────────────────────────────────────────── */
+#app { display: flex; flex-direction: column; height: 100vh; }
+
+/* ── toolbar ─────────────────────────────────────────────── */
+#toolbar {
+  height: 40px;
+  background: #ececec;
+  border-bottom: 1px solid #ccc;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.tool-btn {
+  padding: 3px 10px;
+  border: 1px solid #bbb;
+  background: #fff;
+  border-radius: 2px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  color: #444;
+}
+.tool-btn:hover { background: #e4e4e4; }
+.tool-btn.active { background: #2a2a2a; color: #fff; border-color: #2a2a2a; }
+
+.sep { width: 1px; background: #ccc; height: 18px; margin: 0 2px; }
+.spacer { flex: 1; }
+
+/* ── main row ────────────────────────────────────────────── */
+#main { display: flex; flex: 1; overflow: hidden; }
+
+/* ── left panel ──────────────────────────────────────────── */
+#left-panel {
+  width: 172px;
+  background: #f5f5f5;
+  border-right: 1px solid #ddd;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+/* ── canvas area ─────────────────────────────────────────── */
+#canvas-area {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: #fff;
+}
+
+/* ── right panel ─────────────────────────────────────────── */
+#right-panel {
+  width: 196px;
+  background: #f5f5f5;
+  border-left: 1px solid #ddd;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  overflow-y: auto;
+}
+
+/* ── bottom bar ──────────────────────────────────────────── */
+#bottom-bar {
+  height: 36px;
+  background: #ececec;
+  border-top: 1px solid #ccc;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* ── shared panel chrome ─────────────────────────────────── */
+.panel-head {
+  padding: 7px 10px;
+  font-size: 10px;
+  color: #999;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  border-bottom: 1px solid #e4e4e4;
+  flex-shrink: 0;
+}
+
+/* ── element list ────────────────────────────────────────── */
+#el-list {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.el-row {
+  padding: 5px 10px;
+  font-size: 12px;
+  border-bottom: 1px solid #ebebeb;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #555;
+}
+.el-row:hover { background: #ededee; }
+.el-row.sel { background: #e0e0e0; color: #111; }
+
+/* ── style sliders ───────────────────────────────────────── */
+.slider-block {
+  padding: 9px 11px;
+  border-bottom: 1px solid #eaeaea;
+}
+
+.slider-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 3px;
+}
+
+.slider-name {
+  font-size: 10px;
+  color: #777;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.slider-val {
+  font-size: 10px;
+  color: #aaa;
+  font-variant-numeric: tabular-nums;
+}
+
+input[type=range] {
+  width: 100%;
+  margin: 0;
+  accent-color: #555;
+  cursor: pointer;
+}
+
+.slider-hint {
+  font-size: 10px;
+  color: #ccc;
+  margin-top: 2px;
+  line-height: 1.3;
+}
+
+.panel-empty {
+  padding: 14px 11px;
+  font-size: 11px;
+  color: #bbb;
+  line-height: 1.6;
+}
+
+/* ── softmax banner ──────────────────────────────────────── */
+#softmax-banner {
+  padding: 7px 11px;
+  font-size: 10px;
+  background: #f9f6ee;
+  border-bottom: 1px solid #e8e4d8;
+  color: #888;
+  line-height: 1.5;
+}
+
+/* ── canvas world ────────────────────────────────────────── */
+#world {
+  position: absolute;
+  top: 0; left: 0;
+  transform-origin: 0 0;
+  width: 0; height: 0;
+}
+
+/* SVG connection layer — sits between page-frame and text elements */
+#svg-layer {
+  position: absolute;
+  top: 0; left: 0;
+  width: 0; height: 0;
+  overflow: visible;
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* page frame — A4 ghost outline */
+#page-frame {
+  position: absolute;
+  width: 794px;
+  height: 1123px;
+  left: -397px;
+  top: -561px;
+  border: 1px dashed #e0e0e0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* ── text elements ───────────────────────────────────────── */
+.el {
+  position: absolute;
+  transform-origin: center center;
+  min-width: 10px;
+  min-height: 1em;
+  padding: 2px 3px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
+  outline: none;
+  cursor: pointer;
+  z-index: 10;
+}
+
+.el.sel::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border: 1px dashed #888;
+  pointer-events: none;
+  border-radius: 1px;
+}
+
+.el.residual-pending::after {
+  border-color: #5588cc;
+  border-style: solid;
+}
+
+.el.editing { cursor: text; }
+
+/* ── bottom bar buttons ──────────────────────────────────── */
+.act-btn {
+  padding: 3px 10px;
+  border: 1px solid #bbb;
+  background: #fff;
+  border-radius: 2px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  color: #444;
+}
+.act-btn:hover { background: #e4e4e4; }
+.act-btn.danger { color: #b00; }
+
+#status {
+  margin-left: auto;
+  font-size: 11px;
+  color: #aaa;
+}
+
+/* ── scrollbar ───────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-thumb { background: #ccc; border-radius: 2px; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- toolbar -->
+  <div id="toolbar">
+    <button class="tool-btn active" data-tool="select" onclick="setTool('select')">Select</button>
+    <button class="tool-btn" data-tool="text"   onclick="setTool('text')">Text</button>
+    <button class="tool-btn" data-tool="residual" onclick="setTool('residual')">Residual</button>
+    <button class="tool-btn" data-tool="erase"  onclick="setTool('erase')">Erase</button>
+    <div class="sep"></div>
+    <button class="tool-btn" id="bg-btn"   onclick="cycleBg()">Bg: White</button>
+    <button class="tool-btn" id="font-btn" onclick="cycleFont()">Mono</button>
+    <div class="spacer"></div>
+    <button class="tool-btn" onclick="resetView()">Reset View</button>
+  </div>
+
+  <!-- main -->
+  <div id="main">
+
+    <!-- left panel -->
+    <div id="left-panel">
+      <div class="panel-head">Elements</div>
+      <div id="el-list"></div>
+    </div>
+
+    <!-- canvas -->
+    <div id="canvas-area">
+      <div id="world">
+        <div id="page-frame"></div>
+        <svg id="svg-layer" xmlns="http://www.w3.org/2000/svg"></svg>
+        <!-- text element divs injected here -->
+      </div>
+    </div>
+
+    <!-- right panel -->
+    <div id="right-panel">
+      <div class="panel-head">Style</div>
+      <div id="style-panel">
+        <div class="panel-empty">Select an element<br>to adjust its style.</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- bottom bar -->
+  <div id="bottom-bar">
+    <button class="act-btn" onclick="exportPNG()">PNG ×2</button>
+    <button class="act-btn" onclick="exportSVG()">SVG</button>
+    <button class="act-btn" onclick="exportJSON()">Save JSON</button>
+    <button class="act-btn" onclick="triggerLoad()">Load JSON</button>
+    <input type="file" id="file-input" accept=".json" style="display:none" onchange="handleFileLoad(event)">
+    <button class="act-btn danger" onclick="clearAll()">Clear</button>
+    <span id="status">double-click canvas to create · scroll to zoom</span>
+  </div>
+
+</div>
+<script>
+// ═══════════════════════════════════════════════
+// PART 2 — STATE + VIEWPORT
+// ═══════════════════════════════════════════════
+
+const S = {
+  elements:    [],   // element objects
+  connections: [],   // connection objects
+  selected:    new Set(),  // selected element ids
+  selConn:     null,       // selected connection id
+  tool:        'select',   // select | text | residual | erase
+  vp:          { x: 0, y: 0, zoom: 1 },
+  bg:          'white',
+  font:        'mono',
+  rPending:    null,  // first element id in residual-draw mode
+  nid:         1,     // id counter
+};
+
+const FONTS = {
+  mono:  "'Courier New', Courier, monospace",
+  serif: "Georgia, 'Times New Roman', serif",
+  sans:  "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+};
+const FONT_LABELS = { mono: 'Mono', serif: 'Serif', sans: 'Sans' };
+const BG_COLORS   = { white: '#ffffff', cream: '#f4f0e6', black: '#111111' };
+
+// ── dom refs ─────────────────────────────────────────────────
+const $canvas   = document.getElementById('canvas-area');
+const $world    = document.getElementById('world');
+const $svg      = document.getElementById('svg-layer');
+const $elList   = document.getElementById('el-list');
+const $styleP   = document.getElementById('style-panel');
+const $status   = document.getElementById('status');
+const $bgBtn    = document.getElementById('bg-btn');
+const $fontBtn  = document.getElementById('font-btn');
+
+// ── utils ────────────────────────────────────────────────────
+function uid()          { return 'e' + (S.nid++); }
+function clamp(v,a,b)   { return Math.max(a, Math.min(b, v)); }
+function lerp(a,b,t)    { return a + (b-a)*t; }
+
+function setStatus(msg) { $status.textContent = msg; }
+
+function screenToCanvas(sx, sy) {
+  const r = $canvas.getBoundingClientRect();
+  return {
+    x: (sx - r.left - S.vp.x) / S.vp.zoom,
+    y: (sy - r.top  - S.vp.y) / S.vp.zoom,
+  };
+}
+
+// ── viewport ─────────────────────────────────────────────────
+function applyVP() {
+  $world.style.transform =
+    `translate(${S.vp.x}px,${S.vp.y}px) scale(${S.vp.zoom})`;
+}
+
+function resetView() {
+  S.vp.x    = $canvas.clientWidth  / 2;
+  S.vp.y    = $canvas.clientHeight / 2;
+  S.vp.zoom = 1;
+  applyVP();
+}
+
+// ── pan / zoom events ────────────────────────────────────────
+let pan = null;
+
+$canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const r  = $canvas.getBoundingClientRect();
+  const mx = e.clientX - r.left;
+  const my = e.clientY - r.top;
+  const f  = e.deltaY < 0 ? 1.1 : 0.909;
+  const nz = clamp(S.vp.zoom * f, 0.08, 10);
+  S.vp.x   = mx - (mx - S.vp.x) * (nz / S.vp.zoom);
+  S.vp.y   = my - (my - S.vp.y) * (nz / S.vp.zoom);
+  S.vp.zoom = nz;
+  applyVP();
+}, { passive: false });
+
+// ── tool management ──────────────────────────────────────────
+const CURSORS = { select:'default', text:'crosshair', residual:'cell', erase:'not-allowed' };
+const HINTS   = {
+  select:   'click to select · drag to move · dbl-click canvas to create',
+  text:     'click canvas to place a text element',
+  residual: 'click two elements to draw a residual connection',
+  erase:    'click an element to delete it',
+};
+
+function setTool(t) {
+  S.tool     = t;
+  S.rPending = null;
+  document.querySelectorAll('.tool-btn[data-tool]').forEach(b =>
+    b.classList.toggle('active', b.dataset.tool === t));
+  $canvas.style.cursor = CURSORS[t] || 'default';
+  setStatus(HINTS[t] || '');
+}
+
+// ── bg / font ────────────────────────────────────────────────
+function cycleBg() {
+  const order = ['white','cream','black'];
+  S.bg = order[(order.indexOf(S.bg)+1) % order.length];
+  $canvas.style.background = BG_COLORS[S.bg];
+  $bgBtn.textContent = 'Bg: ' + S.bg[0].toUpperCase() + S.bg.slice(1);
+  renderAllEls();
+}
+
+function cycleFont() {
+  const order = ['mono','serif','sans'];
+  S.font = order[(order.indexOf(S.font)+1) % order.length];
+  $fontBtn.textContent = FONT_LABELS[S.font];
+  renderAllEls();
+}
+
+// ── keyboard shortcuts ───────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (editingId) return;
+  if ((e.key === 'Delete' || e.key === 'Backspace') && S.selected.size) {
+    e.preventDefault(); deleteSelected();
+  }
+  if (e.key === 'Escape') {
+    S.selected.clear(); S.selConn = null; S.rPending = null;
+    renderAllEls(); renderStyleP(); renderElList();
+  }
+});
+
+// ═══════════════════════════════════════════════
+// PART 3 — ELEMENT CREATION + RENDERING
+// ═══════════════════════════════════════════════
+
+// ── element defaults ─────────────────────────────────────────
+function mkEl(x, y) {
+  return {
+    id:              uid(),
+    x, y,
+    text:            'text',
+    layerDepth:      0,
+    attentionWeight: 0.3,
+    temperature:     1.0,
+    softmaxWeight:   0.5,
+    rotation:        0,
+    embedScale:      1.0,
+  };
+}
+
+// ── temperature → css color ──────────────────────────────────
+function tempColor(t) {
+  if (t <= 1) {
+    const h = lerp(210, 0, t), s = lerp(22, 0, t), l = lerp(35, 8, t);
+    return `hsl(${h},${s}%,${l}%)`;
+  }
+  const u = t - 1;
+  return `hsl(0,${lerp(0,72,u)}%,${lerp(8,38,u)}%)`;
+}
+
+// ── softmax bg ───────────────────────────────────────────────
+function softmaxBg(el) {
+  if (S.selected.size < 2 || !S.selected.has(el.id)) return 'transparent';
+  const peers = S.elements.filter(e => S.selected.has(e.id));
+  const total = peers.reduce((s, e) => s + (e.softmaxWeight || 0), 0);
+  if (!total) return 'transparent';
+  const norm  = (el.softmaxWeight || 0) / total;
+  return `rgba(210,155,30,${(norm * 0.38).toFixed(3)})`;
+}
+
+// ── apply styles to a div ────────────────────────────────────
+function applyElStyle(div, el) {
+  const opacity  = 1 - (el.layerDepth / 47) * 0.9;
+  const fontSize = 14 + el.attentionWeight * 22;
+  const lsEm     = el.attentionWeight * 0.4;
+
+  div.style.left            = el.x + 'px';
+  div.style.top             = el.y + 'px';
+  div.style.opacity         = opacity;
+  div.style.fontSize        = fontSize + 'px';
+  div.style.letterSpacing   = lsEm + 'em';
+  div.style.color           = tempColor(el.temperature);
+  div.style.transform       = `translate(-50%,-50%) rotate(${el.rotation}deg) scale(${el.embedScale})`;
+  div.style.fontFamily      = FONTS[S.font];
+  div.style.backgroundColor = softmaxBg(el);
+  div.classList.toggle('sel',             S.selected.has(el.id));
+  div.classList.toggle('residual-pending', S.rPending === el.id);
+}
+
+// ── create & mount an element ────────────────────────────────
+function createElement(x, y) {
+  const el  = mkEl(x, y);
+  S.elements.push(el);
+  mountEl(el);
+  renderElList();
+  autosave();
+  return el;
+}
+
+let editingId = null;
+let drag      = null;
+
+function mountEl(el) {
+  let div = document.getElementById('el-' + el.id);
+  if (!div) {
+    div = document.createElement('div');
+    div.id        = 'el-' + el.id;
+    div.className = 'el';
+    div.setAttribute('contenteditable', 'false');
+    $world.appendChild(div);
+    wireEl(div, el.id);
+  }
+  applyElStyle(div, el);
+  if (div.getAttribute('contenteditable') === 'false') div.textContent = el.text;
+}
+
+function renderAllEls() {
+  // remove orphaned divs
+  const ids = new Set(S.elements.map(e => e.id));
+  $world.querySelectorAll('.el').forEach(d => {
+    if (!ids.has(d.id.slice(3))) d.remove();
+  });
+  S.elements.forEach(mountEl);
+}
+
+// ── element event wiring ─────────────────────────────────────
+function wireEl(div, id) {
+  div.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    const el = S.elements.find(x => x.id === id);
+    if (!el) return;
+
+    if (S.tool === 'erase')    { deleteEl(id); return; }
+    if (S.tool === 'residual') { handleResidualClick(id); return; }
+
+    if (editingId && editingId !== id) stopEdit();
+
+    // selection
+    if (e.shiftKey) {
+      S.selected.has(id) ? S.selected.delete(id) : S.selected.add(id);
+    } else if (!S.selected.has(id)) {
+      S.selected.clear(); S.selected.add(id);
+    }
+    S.selConn = null;
+    renderAllEls(); renderStyleP(); renderElList();
+
+    // start drag (only when not editing)
+    if (div.getAttribute('contenteditable') !== 'true') {
+      const snap = S.selected.size > 1
+        ? S.elements.filter(x => S.selected.has(x.id)).map(x => ({ id: x.id, x: x.x, y: x.y }))
+        : null;
+      drag = { startX: e.clientX, startY: e.clientY,
+               ox: el.x, oy: el.y, moved: false, snap };
+    }
+  });
+
+  div.addEventListener('dblclick', e => {
+    e.stopPropagation();
+    startEdit(id, div);
+  });
+}
+
+function startEdit(id, div) {
+  if (editingId) stopEdit();
+  editingId = id;
+  div.setAttribute('contenteditable', 'true');
+  div.classList.add('editing');
+  div.focus();
+  const r = document.createRange();
+  r.selectNodeContents(div);
+  const sel = window.getSelection();
+  sel.removeAllRanges(); sel.addRange(r);
+}
+
+function stopEdit() {
+  if (!editingId) return;
+  const div = document.getElementById('el-' + editingId);
+  if (div) {
+    div.setAttribute('contenteditable', 'false');
+    div.classList.remove('editing');
+    const el = S.elements.find(x => x.id === editingId);
+    if (el) { el.text = div.textContent || ''; renderElList(); }
+    autosave();
+  }
+  editingId = null;
+}
+
+// ── delete ───────────────────────────────────────────────────
+function deleteEl(id) {
+  S.elements    = S.elements.filter(e => e.id !== id);
+  S.connections = S.connections.filter(c => c.from !== id && c.to !== id);
+  document.getElementById('el-' + id)?.remove();
+  S.selected.delete(id);
+  if (S.rPending === id) S.rPending = null;
+  renderConns(); renderElList(); renderStyleP(); autosave();
+}
+
+function deleteSelected() {
+  [...S.selected].forEach(deleteEl);
+}
+
+// ── canvas mousedown (pan / place text) ──────────────────────
+$canvas.addEventListener('mousedown', e => {
+  if (e.button !== 0) return;
+
+  if (S.tool === 'text') {
+    const p = screenToCanvas(e.clientX, e.clientY);
+    const el = createElement(p.x, p.y);
+    S.selected.clear(); S.selected.add(el.id);
+    renderAllEls(); renderStyleP(); renderElList();
+    const div = document.getElementById('el-' + el.id);
+    if (div) setTimeout(() => startEdit(el.id, div), 10);
+    return;
+  }
+
+  if (editingId) { stopEdit(); return; }
+
+  S.selected.clear(); S.selConn = null;
+  renderAllEls(); renderStyleP(); renderElList();
+
+  pan = { sx: e.clientX, sy: e.clientY, vx: S.vp.x, vy: S.vp.y };
+});
+
+$canvas.addEventListener('mousemove', e => {
+  if (drag) {
+    const dz = S.vp.zoom;
+    const dx = (e.clientX - drag.startX) / dz;
+    const dy = (e.clientY - drag.startY) / dz;
+    drag.moved = true;
+    if (drag.snap) {
+      drag.snap.forEach(s => {
+        const el = S.elements.find(x => x.id === s.id);
+        if (el) { el.x = s.x + dx; el.y = s.y + dy; }
+      });
+    } else {
+      const el = S.elements.find(x => x.id === [...S.selected][0]);
+      if (el) { el.x = drag.ox + dx; el.y = drag.oy + dy; }
+    }
+    renderAllEls(); renderConns();
+  } else if (pan) {
+    S.vp.x = pan.vx + (e.clientX - pan.sx);
+    S.vp.y = pan.vy + (e.clientY - pan.sy);
+    applyVP();
+  }
+});
+
+$canvas.addEventListener('mouseup', () => {
+  if (drag?.moved) autosave();
+  drag = null; pan = null;
+});
+$canvas.addEventListener('mouseleave', () => { pan = null; });
+
+// ── dbl-click canvas to create ───────────────────────────────
+$canvas.addEventListener('dblclick', e => {
+  if (!['select','text'].includes(S.tool)) return;
+  const t = e.target;
+  if (t !== $canvas && t !== $world && t.id !== 'page-frame' && t !== $svg) return;
+  const p  = screenToCanvas(e.clientX, e.clientY);
+  const el = createElement(p.x, p.y);
+  S.selected.clear(); S.selected.add(el.id);
+  renderAllEls(); renderStyleP(); renderElList();
+  const div = document.getElementById('el-' + el.id);
+  if (div) setTimeout(() => startEdit(el.id, div), 10);
+});
+
+// ── element list panel ───────────────────────────────────────
+function renderElList() {
+  $elList.innerHTML = '';
+  S.elements.forEach(el => {
+    const d = document.createElement('div');
+    d.className = 'el-row' + (S.selected.has(el.id) ? ' sel' : '');
+    d.textContent = (el.text || '').replace(/\n/g,' ').slice(0, 20) || '(empty)';
+    d.title = el.text;
+    d.addEventListener('click', ev => {
+      if (ev.shiftKey) {
+        S.selected.has(el.id) ? S.selected.delete(el.id) : S.selected.add(el.id);
+      } else { S.selected.clear(); S.selected.add(el.id); }
+      renderAllEls(); renderStyleP(); renderElList();
+    });
+    $elList.appendChild(d);
+  });
+}
+
+// ═══════════════════════════════════════════════
+// PART 4 — STYLE SLIDERS + TRANSFORMER VOCAB
+// ═══════════════════════════════════════════════
+
+function fmtVal(key, v) {
+  if (key === 'layerDepth') return Math.round(v);
+  if (key === 'rotation')   return Math.round(v) + '°';
+  return (+v).toFixed(2);
+}
+
+// called from inline oninput
+function updateSel(key, val) {
+  val = +val;
+  S.elements.forEach(el => { if (S.selected.has(el.id)) el[key] = val; });
+  renderAllEls(); renderConns(); autosave();
+}
+
+function updateSelVal(key, val) {
+  updateSel(key, val);
+  const vEl = document.getElementById('sv-' + key);
+  if (vEl) vEl.textContent = fmtVal(key, val);
+}
+
+function normalizeSoftmax() {
+  const peers = S.elements.filter(e => S.selected.has(e.id));
+  const total = peers.reduce((s, e) => s + (e.softmaxWeight || 0), 0);
+  peers.forEach(e => e.softmaxWeight = total ? e.softmaxWeight / total : 1 / peers.length);
+  renderAllEls(); renderStyleP(); autosave();
+}
+
+function deleteSelConn() {
+  S.connections = S.connections.filter(c => c.id !== S.selConn);
+  S.selConn = null;
+  renderConns(); renderStyleP(); autosave();
+}
+
+function renderStyleP() {
+  const els  = S.elements.filter(e => S.selected.has(e.id));
+  const conn = S.connections.find(c => c.id === S.selConn);
+
+  if (!els.length && !conn) {
+    $styleP.innerHTML = '<div class="panel-empty">Select an element<br>to adjust its style.</div>';
+    return;
+  }
+
+  $styleP.innerHTML = '';
+
+  // ── connection panel ──────────────────────────────────────
+  if (conn) {
+    $styleP.innerHTML = `
+      <div class="slider-block">
+        <div class="slider-row">
+          <span class="slider-name">Curve</span>
+          <span class="slider-val" id="sv-curve">${conn.curvature.toFixed(2)}</span>
+        </div>
+        <input type="range" min="-2" max="2" step="0.01" value="${conn.curvature}"
+          oninput="conn_curve(+this.value)">
+        <div class="slider-hint">drag the midpoint handle on canvas</div>
+      </div>
+      <div class="slider-block">
+        <button class="act-btn danger" style="width:100%" onclick="deleteSelConn()">Delete connection</button>
+      </div>`;
+    return;
+  }
+
+  const el    = els[0];
+  const multi = els.length > 1;
+
+  // ── softmax banner ────────────────────────────────────────
+  if (multi) {
+    const total = els.reduce((s, e) => s + (e.softmaxWeight || 0), 0);
+    const ok    = Math.abs(total - 1) < 0.01;
+    $styleP.innerHTML += `
+      <div id="softmax-banner">
+        Softmax ×${els.length} &nbsp;sum: ${total.toFixed(2)}${ok ? ' ✓' : ''}
+        <br><button style="font-size:10px;margin-top:4px;padding:2px 7px;
+          border:1px solid #ccc;background:#fff;cursor:pointer;font-family:inherit"
+          onclick="normalizeSoftmax()">Normalize → 1.0</button>
+      </div>`;
+  }
+
+  // ── slider definitions ────────────────────────────────────
+  const sliders = [
+    { key:'layerDepth',      label:'Layer Depth',      min:0,    max:47,  step:1,    hint:'0 = opaque · 47 = faint' },
+    { key:'attentionWeight', label:'Attention',         min:0,    max:1,   step:0.01, hint:'size + letter-spacing' },
+    { key:'temperature',     label:'Temperature',       min:0,    max:2,   step:0.01, hint:'cool → neutral → hot' },
+    ...(multi ? [{ key:'softmaxWeight', label:'Softmax Weight', min:0, max:1, step:0.01, hint:'probability (normalize to sum=1)' }] : []),
+    { key:'rotation',        label:'Rotation',          min:-180, max:180, step:1,    hint:'degrees' },
+    { key:'embedScale',      label:'Embed Distance',    min:0.2,  max:2.5, step:0.01, hint:'scale / semantic proximity' },
+  ];
+
+  sliders.forEach(s => {
+    const v = el[s.key] ?? 0;
+    $styleP.innerHTML += `
+      <div class="slider-block">
+        <div class="slider-row">
+          <span class="slider-name">${s.label}</span>
+          <span class="slider-val" id="sv-${s.key}">${fmtVal(s.key, v)}</span>
+        </div>
+        <input type="range" min="${s.min}" max="${s.max}" step="${s.step}" value="${v}"
+          oninput="updateSelVal('${s.key}',+this.value)">
+        <div class="slider-hint">${s.hint}</div>
+      </div>`;
+  });
+
+  $styleP.innerHTML += `
+    <div class="slider-block">
+      <button class="act-btn danger" style="width:100%"
+        onclick="deleteSelected()">Delete ${multi ? els.length + ' elements' : 'element'}</button>
+    </div>`;
+}
+
+// connection curve — needs access to conn object
+function conn_curve(v) {
+  const c = S.connections.find(x => x.id === S.selConn);
+  if (c) { c.curvature = v; renderConns(); autosave(); }
+  const vEl = document.getElementById('sv-curve');
+  if (vEl) vEl.textContent = v.toFixed(2);
+}
+
+// ═══════════════════════════════════════════════
+// PART 5 — RESIDUAL STREAM CONNECTIONS
+// ═══════════════════════════════════════════════
+
+function handleResidualClick(id) {
+  if (!S.rPending) {
+    S.rPending = id;
+    S.selected.clear(); S.selected.add(id);
+    renderAllEls();
+    setStatus('Residual: click another element to connect · Esc to cancel');
+  } else if (S.rPending !== id) {
+    const conn = { id: 'c' + (S.nid++), from: S.rPending, to: id, curvature: 0 };
+    S.connections.push(conn);
+    S.rPending = null;
+    S.selected.clear();
+    renderAllEls(); renderConns(); autosave();
+    setStatus('Connection created · click to select it');
+  }
+}
+
+function renderConns() {
+  $svg.innerHTML = '';
+  S.connections.forEach(conn => {
+    const f = S.elements.find(e => e.id === conn.from);
+    const t = S.elements.find(e => e.id === conn.to);
+    if (!f || !t) return;
+
+    const x1 = f.x, y1 = f.y, x2 = t.x, y2 = t.y;
+    const mx  = (x1+x2)/2,   my  = (y1+y2)/2;
+    const dx  = x2-x1,       dy  = y2-y1;
+    const len = Math.sqrt(dx*dx + dy*dy) || 1;
+    const offset = conn.curvature * len * 0.3;
+    const cpx  = mx + (-dy/len) * offset;
+    const cpy  = my + ( dx/len) * offset;
+
+    const isSel = conn.id === S.selConn;
+    const path  = document.createElementNS('http://www.w3.org/2000/svg','path');
+    path.setAttribute('d', `M ${x1} ${y1} Q ${cpx} ${cpy} ${x2} ${y2}`);
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', isSel ? '#666' : '#aaa');
+    path.setAttribute('stroke-width', isSel ? '1' : '0.8');
+    path.setAttribute('stroke-dasharray', '4 7');
+    path.setAttribute('opacity', isSel ? '0.75' : '0.45');
+    path.style.pointerEvents = 'stroke';
+    path.style.cursor = 'pointer';
+    path.addEventListener('click', () => {
+      S.selConn = S.selConn === conn.id ? null : conn.id;
+      S.selected.clear(); renderAllEls(); renderConns(); renderStyleP();
+    });
+    $svg.appendChild(path);
+
+    // midpoint drag handle when selected
+    if (isSel) {
+      const circ = document.createElementNS('http://www.w3.org/2000/svg','circle');
+      const hr   = 6 / S.vp.zoom;
+      circ.setAttribute('cx', cpx); circ.setAttribute('cy', cpy);
+      circ.setAttribute('r', hr);
+      circ.setAttribute('fill', '#888'); circ.setAttribute('opacity', '0.55');
+      circ.style.cursor = 'grab'; circ.style.pointerEvents = 'all';
+
+      let hdrag = null;
+      circ.addEventListener('mousedown', ev => {
+        ev.stopPropagation();
+        hdrag = { sy: ev.clientY, sc: conn.curvature };
+      });
+      // global handlers cleaned up on mouseup
+      const onMove = ev => {
+        if (!hdrag) return;
+        const dy2 = (ev.clientY - hdrag.sy) / S.vp.zoom;
+        conn.curvature = clamp(hdrag.sc - dy2 / (len * 0.3 + 1), -2.5, 2.5);
+        renderConns();
+      };
+      const onUp = () => {
+        if (hdrag) { hdrag = null; autosave(); }
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      };
+      circ.addEventListener('mousedown', () => {
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+      });
+      $svg.appendChild(circ);
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════
+// PART 6 — SOFTMAX MODE (visual handled in
+//          applyElStyle via softmaxBg + banner)
+//          Nothing extra needed here — selecting
+//          2+ elements activates it automatically
+// ═══════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════
+// PART 7 — EXPORT + SAVE / LOAD
+// ═══════════════════════════════════════════════
+
+// ── serialisation ────────────────────────────────────────────
+function toJSON() {
+  return { elements: S.elements, connections: S.connections,
+           vp: S.vp, bg: S.bg, font: S.font, nid: S.nid };
+}
+
+function fromJSON(data) {
+  S.elements    = data.elements    || [];
+  S.connections = data.connections || [];
+  S.vp          = data.vp   || { x:0, y:0, zoom:1 };
+  S.bg          = data.bg   || 'white';
+  S.font        = data.font || 'mono';
+  S.nid         = data.nid  || (S.elements.length + S.connections.length + 2);
+
+  // ensure nid is beyond any existing id
+  const maxId = Math.max(0,
+    ...S.elements.map(e    => parseInt(e.id.replace(/\D/g,''))||0),
+    ...S.connections.map(c => parseInt(c.id.replace(/\D/g,''))||0));
+  S.nid = Math.max(S.nid, maxId + 1);
+
+  S.selected.clear(); S.selConn = null; S.rPending = null;
+
+  $canvas.style.background = BG_COLORS[S.bg] || '#fff';
+  $bgBtn.textContent   = 'Bg: ' + S.bg[0].toUpperCase() + S.bg.slice(1);
+  $fontBtn.textContent = FONT_LABELS[S.font] || 'Mono';
+
+  applyVP();
+  $world.querySelectorAll('.el').forEach(d => d.remove());
+  renderAllEls(); renderConns(); renderElList(); renderStyleP();
+}
+
+// ── autosave ─────────────────────────────────────────────────
+let _saveTimer = null;
+function autosave() {
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(() => {
+    try {
+      localStorage.setItem('stc', JSON.stringify(toJSON()));
+      setStatus('autosaved');
+    } catch { setStatus('autosave failed'); }
+  }, 700);
+}
+
+// ── json export / import ──────────────────────────────────────
+function exportJSON() {
+  dl('composition.json', JSON.stringify(toJSON(), null, 2), 'application/json');
+  setStatus('JSON saved');
+}
+
+function triggerLoad() { document.getElementById('file-input').click(); }
+
+function handleFileLoad(e) {
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = ev => {
+    try { fromJSON(JSON.parse(ev.target.result)); setStatus('Loaded: ' + f.name); }
+    catch { setStatus('Load failed — invalid JSON'); }
+  };
+  r.readAsText(f);
+  e.target.value = '';
+}
+
+function clearAll() {
+  if (!confirm('Clear everything?')) return;
+  S.elements = []; S.connections = [];
+  S.selected.clear(); S.selConn = null;
+  $world.querySelectorAll('.el').forEach(d => d.remove());
+  $svg.innerHTML = '';
+  renderElList(); renderStyleP(); autosave();
+}
+
+// ── drag-drop json ───────────────────────────────────────────
+document.addEventListener('dragover', e => e.preventDefault());
+document.addEventListener('drop', e => {
+  e.preventDefault();
+  const f = e.dataTransfer.files[0];
+  if (!f?.name.endsWith('.json')) { setStatus('Drop a .json file to load'); return; }
+  const r = new FileReader();
+  r.onload = ev => { try { fromJSON(JSON.parse(ev.target.result)); setStatus('Loaded: '+f.name); }
+                     catch { setStatus('Load failed'); } };
+  r.readAsText(f);
+});
+
+// ── svg export ───────────────────────────────────────────────
+function exportSVG() {
+  const W = 794, H = 1123;
+  const bgFill = BG_COLORS[S.bg] || '#fff';
+  const lines  = [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${W*2}" height="${H*2}" viewBox="${-W/2} ${-H/2} ${W} ${H}">`,
+    `<rect x="${-W/2}" y="${-H/2}" width="${W}" height="${H}" fill="${bgFill}"/>`,
+  ];
+
+  S.connections.forEach(conn => {
+    const f = S.elements.find(e => e.id === conn.from);
+    const t = S.elements.find(e => e.id === conn.to);
+    if (!f || !t) return;
+    const mx  = (f.x+t.x)/2, my = (f.y+t.y)/2;
+    const dx  = t.x-f.x,     dy = t.y-f.y;
+    const len = Math.sqrt(dx*dx+dy*dy)||1;
+    const off = conn.curvature*len*0.3;
+    const cpx = mx+(-dy/len)*off, cpy = my+(dx/len)*off;
+    lines.push(`<path d="M ${f.x} ${f.y} Q ${cpx} ${cpy} ${t.x} ${t.y}" fill="none" stroke="#aaa" stroke-width="0.6" stroke-dasharray="3 6" opacity="0.5"/>`);
+  });
+
+  S.elements.forEach(el => {
+    const opacity  = 1-(el.layerDepth/47)*0.9;
+    const fontSize = 14+el.attentionWeight*22;
+    const ls       = el.attentionWeight*0.4*fontSize;
+    const color    = tempColor(el.temperature);
+    const scale    = el.embedScale||1;
+    const tlines   = el.text.split('\n');
+    lines.push(`<g transform="translate(${el.x},${el.y}) rotate(${el.rotation}) scale(${scale})" opacity="${opacity.toFixed(3)}">`);
+    tlines.forEach((ln,i) => {
+      lines.push(`<text x="0" y="${i*fontSize*1.35}" font-size="${fontSize}" font-family="${FONTS[S.font].replace(/"/g,"'")}" fill="${color}" letter-spacing="${ls.toFixed(1)}" text-anchor="middle">${esc(ln)}</text>`);
+    });
+    lines.push('</g>');
+  });
+  lines.push('</svg>');
+  dl('composition.svg', lines.join('\n'), 'image/svg+xml');
+  setStatus('SVG saved');
+}
+
+function esc(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── png export (2×) ──────────────────────────────────────────
+function exportPNG() {
+  const W = 794, H = 1123, SC = 2;
+  const cv = document.createElement('canvas');
+  cv.width = W*SC; cv.height = H*SC;
+  const ctx = cv.getContext('2d');
+
+  ctx.fillStyle = BG_COLORS[S.bg] || '#fff';
+  ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.save();
+  ctx.translate(cv.width/2, cv.height/2);
+  ctx.scale(SC, SC);
+
+  // connections
+  S.connections.forEach(conn => {
+    const f = S.elements.find(e => e.id === conn.from);
+    const t = S.elements.find(e => e.id === conn.to);
+    if (!f || !t) return;
+    const mx  = (f.x+t.x)/2, my = (f.y+t.y)/2;
+    const dx  = t.x-f.x,     dy = t.y-f.y;
+    const len = Math.sqrt(dx*dx+dy*dy)||1;
+    const off = conn.curvature*len*0.3;
+    const cpx = mx+(-dy/len)*off, cpy = my+(dx/len)*off;
+    ctx.save();
+    ctx.strokeStyle = '#aaa'; ctx.lineWidth = 0.6;
+    ctx.setLineDash([3,6]); ctx.globalAlpha = 0.5;
+    ctx.beginPath(); ctx.moveTo(f.x,f.y); ctx.quadraticCurveTo(cpx,cpy,t.x,t.y); ctx.stroke();
+    ctx.restore();
+  });
+
+  // elements
+  S.elements.forEach(el => {
+    const opacity  = 1-(el.layerDepth/47)*0.9;
+    const fontSize = 14+el.attentionWeight*22;
+    const lsEm     = el.attentionWeight*0.4;
+    const color    = tempColor(el.temperature);
+    const scale    = el.embedScale||1;
+    ctx.save();
+    ctx.translate(el.x, el.y);
+    ctx.rotate(el.rotation*Math.PI/180);
+    ctx.scale(scale, scale);
+    ctx.globalAlpha = opacity;
+    ctx.fillStyle   = color;
+    ctx.font        = `${fontSize}px ${FONTS[S.font]}`;
+    const lspx      = lsEm * fontSize;
+    el.text.split('\n').forEach((ln, i) => {
+      const y = i * fontSize * 1.35;
+      if (lspx < 0.5) {
+        const w = ctx.measureText(ln).width;
+        ctx.fillText(ln, -w/2, y);
+      } else {
+        // manual letter spacing
+        const chars = [...ln];
+        const widths = chars.map(ch => ctx.measureText(ch).width);
+        const total  = widths.reduce((s,w)=>s+w,0) + lspx*(chars.length-1);
+        let cx2 = -total/2;
+        chars.forEach((ch,ci) => { ctx.fillText(ch, cx2, y); cx2 += widths[ci]+lspx; });
+      }
+    });
+    ctx.restore();
+  });
+
+  ctx.restore();
+  cv.toBlob(blob => {
+    const url = URL.createObjectURL(blob);
+    const a   = document.createElement('a');
+    a.href = url; a.download = 'composition.png'; a.click();
+    URL.revokeObjectURL(url);
+  });
+  setStatus('PNG saved at 2×');
+}
+
+function dl(name, content, type) {
+  const blob = new Blob([content], { type });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = name; a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ═══════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════
+(function init() {
+  try {
+    const saved = localStorage.getItem('stc');
+    if (saved) { fromJSON(JSON.parse(saved)); setStatus('restored from autosave'); return; }
+  } catch {}
+  resetView();
+  setStatus('double-click canvas to create · drag to move · scroll to zoom');
+})();
+</script>
+</body>
+</html>
