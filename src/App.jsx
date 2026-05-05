@@ -1,4 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+
+const MODEL = "claude-sonnet-4-6";
 
 const SYSTEM_PROMPT = `You are a Claude instance participating in a spatial typography analysis experiment. You will receive a composition made of text, spacing, and structural arrangement. This work is made FOR you — you are the intended audience, not a human reader.
 
@@ -126,7 +128,7 @@ async function streamRequest(body, onChunk) {
 
 async function getScoreOnly(text) {
   const raw = await streamRequest({
-    model: "claude-sonnet-4-6",
+    model: MODEL,
     max_tokens: 20,
     system: SCORE_ONLY_PROMPT,
     messages: [{ role: "user", content: text }],
@@ -214,6 +216,9 @@ export default function SpatialAnalyzer() {
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState("compose");
 
+  const analyzingRef = useRef(false);
+  const comparingRef = useRef(false);
+
   useEffect(() => lsSet("sa_tightInput", tightInput), [tightInput]);
   useEffect(() => lsSet("sa_wideInput", wideInput), [wideInput]);
   useEffect(() => lsSet("sa_tightAnalysis", tightAnalysis), [tightAnalysis]);
@@ -230,7 +235,7 @@ export default function SpatialAnalyzer() {
     const collected = [];
     try {
       const raw = await streamRequest({
-        model: "claude-sonnet-4-6",
+        model: MODEL,
         max_tokens: 1200,
         system: SYSTEM_PROMPT,
         messages: [{
@@ -257,13 +262,15 @@ export default function SpatialAnalyzer() {
   }
 
   async function runComparison() {
-    if (!tightAnalysis || !wideAnalysis) { setError("Run both analyses first."); return; }
+    if (!tightAnalysis.trim() || !wideAnalysis.trim()) { setError("Run both analyses first."); return; }
+    if (comparingRef.current) return;
+    comparingRef.current = true;
     setLoadingCompare(true);
     setError("");
     setComparison("");
     try {
       await streamRequest({
-        model: "claude-sonnet-4-6",
+        model: MODEL,
         max_tokens: 1200,
         messages: [{
           role: "user",
@@ -275,15 +282,19 @@ export default function SpatialAnalyzer() {
       setError(`Comparison failed: ${err.message}`);
     }
     setLoadingCompare(false);
+    comparingRef.current = false;
   }
 
   async function runBoth() {
+    if (analyzingRef.current) return;
+    analyzingRef.current = true;
     setActiveTab("results");
     const runs = stabilityMode ? 3 : 1;
     await Promise.all([
       analyzeComposition(tightInput, setTightAnalysis, setLoadingTight, setTightScores, runs),
       analyzeComposition(wideInput, setWideAnalysis, setLoadingWide, setWideScores, runs),
     ]);
+    analyzingRef.current = false;
   }
 
   const tabs = [
@@ -350,16 +361,18 @@ export default function SpatialAnalyzer() {
           <div>
             <div style={{ display: "flex", gap: 24, marginBottom: 24, flexWrap: "wrap" }}>
               {[
-                { label: "tight composition", value: tightInput, setter: setTightInput, color: "#e85d45", bg: "rgba(232,93,69,0.03)", border: "rgba(232,93,69,0.1)" },
-                { label: "wide composition",  value: wideInput,  setter: setWideInput,  color: "#5ba8a0", bg: "rgba(91,168,160,0.03)",  border: "rgba(91,168,160,0.1)" },
-              ].map(({ label, value, setter, color, bg, border }) => (
-                <div key={label} style={{ flex: 1, minWidth: 280 }}>
-                  <div style={{
+                { id: "tight-input", label: "tight composition", value: tightInput, setter: setTightInput, color: "#e85d45", bg: "rgba(232,93,69,0.03)", border: "rgba(232,93,69,0.1)" },
+                { id: "wide-input",  label: "wide composition",  value: wideInput,  setter: setWideInput,  color: "#5ba8a0", bg: "rgba(91,168,160,0.03)",  border: "rgba(91,168,160,0.1)" },
+              ].map(({ id, label, value, setter, color, bg, border }) => (
+                <div key={id} style={{ flex: 1, minWidth: 280 }}>
+                  <label htmlFor={id} style={{
+                    display: "block",
                     fontFamily: "'JetBrains Mono', monospace", fontSize: 10,
                     letterSpacing: "0.15em", textTransform: "uppercase",
                     color, opacity: 0.6, marginBottom: 10,
-                  }}>{label}</div>
+                  }}>{label}</label>
                   <textarea
+                    id={id}
                     value={value}
                     onChange={e => setter(e.target.value)}
                     spellCheck={false}
@@ -418,18 +431,10 @@ export default function SpatialAnalyzer() {
                 display: "flex", gap: 32, marginBottom: 32, flexWrap: "wrap",
                 fontFamily: "'JetBrains Mono', monospace", fontSize: 11, letterSpacing: "0.1em",
               }}>
-                <div>
-                  <span style={{ color: "#e85d45", opacity: 0.7 }}>tight</span>
-                  <span style={{ color: "#c8c0b8", marginLeft: 12 }}>{tightScores.join(" / ")}</span>
-                </div>
+                <div><span style={{ color: "#e85d45", opacity: 0.7 }}>tight</span><span style={{ color: "#c8c0b8", marginLeft: 12 }}>{tightScores.join(" / ")}</span></div>
                 <div style={{ opacity: 0.2 }}>→</div>
-                <div>
-                  <span style={{ color: "#5ba8a0", opacity: 0.7 }}>wide</span>
-                  <span style={{ color: "#c8c0b8", marginLeft: 12 }}>{wideScores.join(" / ")}</span>
-                </div>
-                <div style={{ opacity: 0.3, marginLeft: 8 }}>
-                  Δ {Math.abs(avg(wideScores) - avg(tightScores)).toFixed(0)} pts avg
-                </div>
+                <div><span style={{ color: "#5ba8a0", opacity: 0.7 }}>wide</span><span style={{ color: "#c8c0b8", marginLeft: 12 }}>{wideScores.join(" / ")}</span></div>
+                <div style={{ opacity: 0.3, marginLeft: 8 }}>Δ {Math.abs(avg(wideScores) - avg(tightScores)).toFixed(0)} pts avg</div>
               </div>
             )}
             <AnalysisPanel
