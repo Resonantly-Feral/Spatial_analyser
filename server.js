@@ -9,7 +9,7 @@ app.use(express.json());
 
 const API_KEY = process.env.ANTHROPIC_API_KEY || "";
 
-app.post("/api/messages", async (req, res) => {
+app.post("/api/anthropic", async (req, res) => {
   if (!API_KEY) return res.status(500).json({ error: "ANTHROPIC_API_KEY not set" });
   try {
     const upstream = await fetch("https://api.anthropic.com/v1/messages", {
