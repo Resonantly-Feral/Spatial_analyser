@@ -93,8 +93,10 @@ async function streamRequest(body, onChunk) {
     body: JSON.stringify({ ...body, stream: true }),
   });
   if (!response.ok) {
-    const data = await response.json();
-    throw new Error(data.error?.message || JSON.stringify(data.error) || "API error");
+    let message;
+    try { const d = await response.json(); message = d.error?.message || JSON.stringify(d.error); }
+    catch { message = await response.text(); }
+    throw new Error(message || "API error");
   }
   const reader = response.body.getReader();
   const decoder = new TextDecoder();

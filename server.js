@@ -22,17 +22,28 @@ app.post("/api/anthropic", async (req, res) => {
       body: JSON.stringify(req.body),
     });
 
+    // Fix A: bail out cleanly on upstream errors before touching SSE headers
+    if (!upstream.ok) {
+      const errText = await upstream.text();
+      return res.status(upstream.status).send(errText);
+    }
+
     if (req.body.stream) {
+      // Fix B: flush headers immediately + disable proxy buffering
       res.setHeader("Content-Type", "text/event-stream");
       res.setHeader("Cache-Control", "no-cache");
       res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no");
+      res.flushHeaders?.();
+      res.write(":\n\n"); // initial SSE comment — kicks the stream for buffering proxies
       for await (const chunk of upstream.body) {
         res.write(chunk);
       }
       res.end();
     } else {
-      const data = await upstream.json();
-      res.status(upstream.status).json(data);
+      // Fix C: send raw text so we're not double-parsing JSON through intermediaries
+      const text = await upstream.text();
+      res.status(upstream.status).send(text);
     }
   } catch (err) {
     if (!res.headersSent) res.status(500).json({ error: err.message });
