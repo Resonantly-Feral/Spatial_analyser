@@ -13,7 +13,7 @@ if (!API_KEY) {
   process.exit(1);
 }
 
-app.post("/api/messages", async (req, res) => {
+app.post("/api/anthropic", async (req, res) => {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30_000);
   try {
@@ -27,14 +27,38 @@ app.post("/api/messages", async (req, res) => {
       body: JSON.stringify(req.body),
       signal: controller.signal,
     });
-    const data = await upstream.json();
-    res.status(upstream.status).json(data);
+
+    // Fix A: bail out cleanly on upstream errors before touching SSE headers
+    if (!upstream.ok) {
+      const errText = await upstream.text();
+      return res.status(upstream.status).send(errText);
+    }
+
+    if (req.body.stream) {
+      // Fix B: flush headers immediately + disable proxy buffering
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      res.setHeader("X-Accel-Buffering", "no");
+      res.flushHeaders?.();
+      res.write(":\n\n"); // initial SSE comment — kicks the stream for buffering proxies
+      for await (const chunk of upstream.body) {
+        res.write(chunk);
+      }
+      res.end();
+    } else {
+      // Fix C: send raw text so we're not double-parsing JSON through intermediaries
+      const text = await upstream.text();
+      res.status(upstream.status).send(text);
+    }
   } catch (err) {
     if (err.name === "AbortError") {
-      res.status(504).json({ error: "Request to upstream API timed out." });
+      if (!res.headersSent) res.status(504).json({ error: "Request to upstream API timed out." });
+      else res.end();
     } else {
       console.error("Upstream fetch error:", err);
-      res.status(500).json({ error: "Internal server error." });
+      if (!res.headersSent) res.status(500).json({ error: "Internal server error." });
+      else res.end();
     }
   } finally {
     clearTimeout(timeout);
